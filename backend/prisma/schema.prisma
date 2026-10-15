@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Papéis do usuário no sistema
+enum Role {
+  ADMIN
+  REVIEWER
+  USER
+}
+
+// Status de aprovação do usuário
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Status de processamento de uma Fatura via pipeline n8n/TESS IA
+enum FaturaStatus {
+  PROCESSANDO        // PDF recebido, aguardando a TESS IA
+  CONCLUIDO          // Processamento finalizado com sucesso
+  ERRO_PROCESSAMENTO // Falha no pipeline (TESS IA ou n8n)
+  MANUAL             // Fatura enviada via XML/JSON diretamente (fluxo legado)
+}
+
+// Modelo de Usuário Principal
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  name          String
+  password      String
+  role          Role           @default(USER)
+  status        UserStatus     @default(PENDING)
+  // Usuário do Protheus vinculado (minúsculo). É por ele que o login via
+  // CentralHub (SSO) encontra a conta; vazio = ainda não vinculou.
+  protheusUsername String?     @unique
+  refreshTokens RefreshToken[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+// Token de atualização para autenticação segura
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// Link gerado para coleta pública de faturas
+model LinkColeta {
+  id          String       @id @default(uuid())
+  token       String       @unique
+  empresa     String
+  filial      String?
+  expiresAt   DateTime?
+  isUsed      Boolean      @default(false)
+  isActive    Boolean      @default(true)
+  faturas     Fatura[]
+  createdAt   DateTime     @default(now())
+}
+
+// Registro da fatura processada via XML, JSON ou pipeline PDF/n8n
+model Fatura {
+  id           String       @id @default(uuid())
+  senderName   String       // Nome de quem enviou a fatura
+  emitente     String?      // Nome do Local que emitiu (xNome)
+  local        String?      // Local/Unidade selecionado pelo usuário no upload
+  empresa      String?      // Empresa selecionada no link de coleta
+  faturaNumber String?      // Número da Fatura extraído do arquivo
+  valorFatura  Float        // Valor da Fatura
+  consumoKwh   Float?       // Consumo em kWh
+  dataEmissao  String?      // Data de emissão (dhEmi)
+  // Detalhamento extraído pela IA. Nem toda fatura traz estes campos
+  // (ex: sem demanda/ponta); vazio = não consta na fatura.
+  numeroUc            String? // Número da unidade consumidora / instalação
+  mesReferencia       String? // Mês de referência da fatura (MM/AAAA)
+  diasFaturados       Int?    // Nº de dias faturados
+  consumoPontaKwh     Float?  // Consumo ponta (kWh)
+  consumoForaPontaKwh Float?  // Consumo fora de ponta (kWh)
+  demandaContratadaKw Float?  // Demanda contratada (kW)
+  demandaPontaKw      Float?  // Demanda registrada ponta (kW)
+  demandaForaPontaKw  Float?  // Demanda registrada fora de ponta (kW)
+  demandaFaturadaKw   Float?  // Demanda faturada (kW)
+  multaUltrapassagem  Float?  // Multa por ultrapassagem de demanda (R$)
+  reativoExcedente    Float?  // Cobrança de energia reativa excedente (R$)
+  xmlFileName String?      // Nome do arquivo original
+  filePath     String?      // Caminho físico do arquivo no servidor
+  status       FaturaStatus @default(MANUAL) // Status do processamento
+  progress     Int          @default(0)     // Progresso do pipeline n8n (0 a 100)
+  errorReason  String?                      // Motivo do erro, se houver (ex: "Too many requests")
+  linkId       String
+  link         LinkColeta   @relation(fields: [linkId], references: [id])
+  originalData Json?        // Guarda os dados brutos recebidos pela IA
+  createdAt    DateTime     @default(now())
+}
