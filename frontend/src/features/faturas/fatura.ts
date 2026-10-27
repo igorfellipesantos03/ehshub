@@ -28,7 +28,14 @@ export interface Fatura {
   originalData?: Partial<Record<keyof Fatura, unknown>> | null;
   status: 'PROCESSANDO' | 'CONCLUIDO' | 'ERRO_PROCESSAMENTO' | 'MANUAL';
   errorReason?: string | null;
+  origem: OrigemDaFatura;
+  // Só nas faturas do Protheus: empresa|filial|documento|serie|fornecedor|loja
+  chaveProtheus?: string | null;
+  valorBrutoProtheus?: number | null;
+  emissaoProtheus?: string | null; // AAAA-MM-DD
+  usuarioProtheus?: string | null;
   createdAt: string;
+  // Faturas vindas do Protheus não têm link de coleta.
   link?: {
     id: string;
     token: string;
@@ -37,11 +44,25 @@ export interface Fatura {
     expiresAt: string;
     isUsed: boolean;
     createdAt: string;
-  };
+  } | null;
 }
+
+export type OrigemDaFatura = 'LINK' | 'PROTHEUS';
+
+export const ROTULOS_DE_ORIGEM: Record<OrigemDaFatura, string> = {
+  LINK: 'Link de coleta',
+  PROTHEUS: 'Protheus',
+};
 
 export const empresaDaFatura = (fatura: Fatura) => fatura.empresa || fatura.link?.empresa || '';
 export const localDaFatura = (fatura: Fatura) => fatura.local || fatura.link?.filial || '';
+
+// Documento de entrada do Protheus, lido da chave gravada no envio.
+export const documentoProtheus = (fatura: Fatura) => {
+  if (!fatura.chaveProtheus) return null;
+  const [empresa, filial, documento, serie, fornecedor, loja] = fatura.chaveProtheus.split('|');
+  return { empresa, filial, documento, serie, fornecedor, loja };
+};
 
 export const formatarConsumo = (kwh: number | null) => (kwh ? `${formatarNumero(kwh)} kWh` : '—');
 
@@ -113,4 +134,34 @@ export const formatarDetalhe = (valor: unknown, tipo: TipoDeDetalhe) => {
   if (tipo === 'kwh') return `${numero} kWh`;
   if (tipo === 'kw') return `${numero} kW`;
   return numero;
+};
+
+const formatarEmissaoIso = (iso: string) => iso.split('-').reverse().join('/');
+
+/**
+ * Diferenças entre o que a IA extraiu do PDF e o documento de entrada do
+ * Protheus. Só faz sentido depois que a IA terminou.
+ */
+export const divergenciasComProtheus = (fatura: Fatura) => {
+  const divergencias: string[] = [];
+  if (fatura.origem !== 'PROTHEUS' || fatura.status !== 'CONCLUIDO') return divergencias;
+
+  if (
+    fatura.valorBrutoProtheus !== null &&
+    fatura.valorBrutoProtheus !== undefined &&
+    Math.abs(fatura.valorFatura - fatura.valorBrutoProtheus) >= 0.01
+  ) {
+    divergencias.push(
+      `Valor extraído (${formatarMoeda(fatura.valorFatura)}) diferente do valor bruto no Protheus (${formatarMoeda(fatura.valorBrutoProtheus)}).`,
+    );
+  }
+
+  const emissaoExtraida = emissaoIso(fatura.dataEmissao);
+  if (fatura.emissaoProtheus && emissaoExtraida && emissaoExtraida !== fatura.emissaoProtheus) {
+    divergencias.push(
+      `Emissão extraída (${formatarEmissaoIso(emissaoExtraida)}) diferente da emissão no Protheus (${formatarEmissaoIso(fatura.emissaoProtheus)}).`,
+    );
+  }
+
+  return divergencias;
 };

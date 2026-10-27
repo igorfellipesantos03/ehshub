@@ -29,6 +29,12 @@ enum FaturaStatus {
   MANUAL             // Fatura enviada via XML/JSON diretamente (fluxo legado)
 }
 
+// Por onde a fatura entrou no sistema
+enum OrigemFatura {
+  LINK     // Enviada por um link público de coleta
+  PROTHEUS // Enviada pelo Protheus ao classificar o documento de entrada
+}
+
 // Modelo de Usuário Principal
 model User {
   id            String         @id @default(uuid())
@@ -97,8 +103,16 @@ model Fatura {
   status       FaturaStatus @default(MANUAL) // Status do processamento
   progress     Int          @default(0)     // Progresso do pipeline n8n (0 a 100)
   errorReason  String?                      // Motivo do erro, se houver (ex: "Too many requests")
-  linkId       String
-  link         LinkColeta   @relation(fields: [linkId], references: [id])
+  // Faturas vindas do Protheus não têm link de coleta.
+  linkId       String?
+  link         LinkColeta?  @relation(fields: [linkId], references: [id])
+  origem       OrigemFatura @default(LINK)
+  // empresa|filial|documento|serie|fornecedor|loja: torna o envio do Protheus idempotente.
+  chaveProtheus      String? @unique
+  // Valores do documento de entrada, para conferir com o que a IA extraiu.
+  valorBrutoProtheus Float?
+  emissaoProtheus    String? // AAAA-MM-DD
+  usuarioProtheus    String?
   originalData Json?        // Guarda os dados brutos recebidos pela IA
   createdAt    DateTime     @default(now())
 }

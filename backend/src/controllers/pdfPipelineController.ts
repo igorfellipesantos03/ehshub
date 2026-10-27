@@ -1,7 +1,4 @@
 import { Request, Response } from 'express';
-import axios from 'axios';
-import FormData from 'form-data';
-import fs from 'fs';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
 import { FaturaStatus } from '@prisma/client';
@@ -9,12 +6,10 @@ import { FaturaStatus } from '@prisma/client';
 import { ENV } from '../config/env';
 import { getIo } from '../socket';
 import { extrairDetalhesFatura } from '../utils/faturaDetalhes';
+import { dispararPipelineN8n } from '../services/n8nPipeline';
 
 const db = prisma as any;
 
-// ── URL do Webhook de Entrada do n8n ──────────────────────────────
-// Substitua pela URL real do seu n8n (ex: https://seu-n8n.cloud/webhook/ehs-fatura-pdf)
-const N8N_WEBHOOK_URL = ENV.N8N_WEBHOOK_URL;
 // Token secreto compartilhado entre o n8n e o EHS HUB para proteger o callback
 const WEBHOOK_SECRET = ENV.N8N_WEBHOOK_SECRET;
 
@@ -69,38 +64,15 @@ export const uploadPdfParaN8n = async (req: Request, res: Response) => {
       console.error('Socket emit error:', e);
     }
 
-    // 3. Montar o FormData para enviar o arquivo como binário (multipart/form-data)
-    const formData = new FormData();
-    formData.append('faturaId', faturaRegistro.id);
-    formData.append('linkToken', token);
-    formData.append('senderName', senderName);
-
-    // Envia o arquivo PDF lendo do disco
-    formData.append('pdfFile', fs.createReadStream(pdfFile.path), {
-      filename: pdfFile.originalname,
-      contentType: pdfFile.mimetype,
+    // 3. Disparar o n8n de forma assíncrona (fire-and-forget)
+    dispararPipelineN8n({
+      faturaId: faturaRegistro.id,
+      senderName,
+      linkToken: token,
+      arquivo: { caminho: pdfFile.path, nomeOriginal: pdfFile.originalname, mimetype: pdfFile.mimetype },
     });
 
-    // 4. Disparar o n8n de forma ASSÍNCRONA (fire-and-forget)
-    axios.post(N8N_WEBHOOK_URL, formData, {
-      headers: formData.getHeaders(),
-      timeout: 30000, // 30s para disparar o envio
-    }).catch(async (err) => {
-      if (err.response) {
-        console.error(`[n8n Response Error]:`, err.response.data);
-      }
-
-      // Atualiza o status para erro em vez de apagar, pois o n8n pode ainda estar processando
-      try {
-        await db.fatura.update({
-          where: { id: faturaRegistro.id },
-          data: { status: 'ERRO' }
-        });
-      } catch (updateErr) {
-      }
-    });
-
-    // 5. Retornar 202 Accepted imediatamente ao frontend
+    // 4. Retornar 202 Accepted imediatamente ao frontend
     return res.status(202).json({
       mensagem: 'Fatura recebida. O processamento foi iniciado e pode levar alguns instantes.',
       faturaId: faturaRegistro.id,

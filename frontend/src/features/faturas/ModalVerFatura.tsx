@@ -8,6 +8,8 @@ import { Aviso } from '@/components/ui/Feedback';
 import { formatarDataEmissao, formatarDataHora, formatarMoeda } from '@/lib/formato';
 import {
   GRUPOS_DE_DETALHE,
+  divergenciasComProtheus,
+  documentoProtheus,
   empresaDaFatura,
   formatarConsumo,
   formatarDetalhe,
@@ -24,6 +26,9 @@ interface ModalVerFaturaProps {
 }
 
 export function ModalVerFatura({ fatura, aoFechar, aoEditar, aoBaixar }: ModalVerFaturaProps) {
+  const documento = documentoProtheus(fatura);
+  const divergencias = divergenciasComProtheus(fatura);
+
   return (
     <Modal
       titulo={empresaDaFatura(fatura) || 'Fatura'}
@@ -42,6 +47,14 @@ export function ModalVerFatura({ fatura, aoFechar, aoEditar, aoBaixar }: ModalVe
       <div className="space-y-6">
         {fatura.status === 'ERRO_PROCESSAMENTO' && (
           <Aviso tipo="erro">{fatura.errorReason || 'Falha no processamento desta fatura.'}</Aviso>
+        )}
+
+        {divergencias.length > 0 && (
+          <Aviso tipo="alerta">
+            Confira esta fatura: os dados extraídos não batem com o documento de entrada.
+            {'\n'}
+            {divergencias.map((texto) => `• ${texto}`).join('\n')}
+          </Aviso>
         )}
 
         <dl className="grid grid-cols-2 gap-x-6 gap-y-5">
@@ -73,6 +86,33 @@ export function ModalVerFatura({ fatura, aoFechar, aoEditar, aoBaixar }: ModalVe
               </dl>
             </section>
           ))}
+
+        {fatura.origem === 'PROTHEUS' && (
+          <section className="border-t border-hairline pt-5">
+            <h3 className="text-sm font-bold text-white">Documento de entrada no Protheus</h3>
+            <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4">
+              <Dado rotulo="Documento / série">
+                <span className="font-mono">
+                  {documento?.documento || '—'}
+                  {documento?.serie ? ` / ${documento.serie}` : ''}
+                </span>
+              </Dado>
+              <Dado rotulo="Fornecedor / loja">
+                <span className="font-mono">
+                  {documento ? `${documento.fornecedor} / ${documento.loja}` : '—'}
+                </span>
+              </Dado>
+              <Dado rotulo="Filial">{documento?.filial || '—'}</Dado>
+              <Dado rotulo="Incluído por">{fatura.usuarioProtheus || '—'}</Dado>
+              <Dado rotulo="Valor bruto no Protheus">
+                {fatura.valorBrutoProtheus !== null && fatura.valorBrutoProtheus !== undefined
+                  ? formatarMoeda(fatura.valorBrutoProtheus)
+                  : '—'}
+              </Dado>
+              <Dado rotulo="Emissão no Protheus">{formatarDataEmissao(fatura.emissaoProtheus ?? null)}</Dado>
+            </dl>
+          </section>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-hairline pt-5 text-[13px] text-muted">
           <span className="flex min-w-0 items-center gap-2">

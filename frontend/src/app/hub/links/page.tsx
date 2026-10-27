@@ -40,7 +40,7 @@ export default function LinksManagementPage() {
   useEffect(() => {
     socket.connect();
     const recarregar = () => queryClient.invalidateQueries({ queryKey: ['links'] });
-    const eventos = ['invoice_created', 'invoice_updated', 'link_created', 'link_updated'];
+    const eventos = ['invoice_created', 'invoice_updated', 'invoice_deleted', 'link_created', 'link_updated'];
 
     eventos.forEach((evento) => socket.on(evento, recarregar));
 

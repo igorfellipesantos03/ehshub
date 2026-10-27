@@ -20,6 +20,10 @@ export const ENV = {
   CENTRALHUB_INTERNAL_URL: process.env.CENTRALHUB_INTERNAL_URL || 'http://127.0.0.1:3001',
   SSO_CLIENT_ID: process.env.SSO_CLIENT_ID || 'ehshub',
   SSO_CLIENT_SECRET: process.env.SSO_CLIENT_SECRET as string,
+
+  // Integração Protheus -> EHS HUB (faturas de energia do documento de entrada).
+  // Sem valor padrão: sem o segredo no .env, as rotas da integração respondem 503.
+  PROTHEUS_INTEGRATION_SECRET: process.env.PROTHEUS_INTEGRATION_SECRET as string,
 };
 
 // Sem valor padrão no código: um segredo escrito aqui vaza junto com o repositório.

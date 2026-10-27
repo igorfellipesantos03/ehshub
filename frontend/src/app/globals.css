@@ -179,3 +179,102 @@
 .animate-deslizar {
   animation: deslizar 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* ── Tela de login: painel de indicadores ────────────────────────────────────
+   Os gráficos se desenham, as barras oscilam e os cartões flutuam, em ciclo.
+   Quem pede menos movimento no sistema vê tudo parado, já no estado final. */
+.login-grade {
+  background-image: radial-gradient(rgba(139, 163, 196, 0.18) 1px, transparent 1px);
+  background-size: 26px 26px;
+  animation: login-deriva 40s linear infinite;
+}
+
+.login-desenha {
+  stroke-dasharray: 900;
+  stroke-dashoffset: 900;
+  animation: login-desenhar 7s ease-in-out infinite;
+}
+
+.login-area,
+.login-ponto {
+  opacity: 0;
+  animation: login-aparecer 7s ease-in-out infinite;
+}
+
+.login-anel {
+  stroke-dasharray: 0 302;
+  animation: login-preencher 6s ease-in-out infinite;
+}
+
+.login-atraso {
+  animation-delay: 0.6s;
+}
+
+.login-barra {
+  transform-origin: bottom;
+  animation: login-oscilar 4s ease-in-out infinite alternate;
+}
+
+.login-flutua {
+  animation: login-flutuar 7s ease-in-out infinite;
+}
+
+.login-pulso {
+  animation: login-pulsar 1.8s ease-out infinite;
+}
+
+@keyframes login-desenhar {
+  0% { stroke-dashoffset: 900; }
+  45%, 85% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -900; }
+}
+
+@keyframes login-aparecer {
+  0%, 20% { opacity: 0; }
+  45%, 85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes login-preencher {
+  0% { stroke-dasharray: 0 302; }
+  50%, 85% { stroke-dasharray: 215 302; }
+  100% { stroke-dasharray: 0 302; }
+}
+
+@keyframes login-oscilar {
+  from { transform: scaleY(0.55); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes login-flutuar {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes login-pulsar {
+  0% { box-shadow: 0 0 0 0 rgba(0, 168, 204, 0.55); }
+  100% { box-shadow: 0 0 0 9px rgba(0, 168, 204, 0); }
+}
+
+@keyframes login-deriva {
+  from { background-position: 0 0; }
+  to { background-position: 260px 130px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-grade,
+  .login-desenha,
+  .login-area,
+  .login-ponto,
+  .login-anel,
+  .login-barra,
+  .login-flutua,
+  .login-pulso {
+    animation: none;
+  }
+
+  .login-desenha { stroke-dashoffset: 0; }
+  .login-area,
+  .login-ponto { opacity: 1; }
+  .login-anel { stroke-dasharray: 215 302; }
+}

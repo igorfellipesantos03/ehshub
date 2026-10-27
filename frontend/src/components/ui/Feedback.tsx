@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertCircle, CheckCircle2, Info, Loader2, type LucideIcon } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, Loader2, type LucideIcon } from 'lucide-react';
 
 export function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
   return <Loader2 className={`animate-spin ${className}`} aria-hidden="true" />;
@@ -18,6 +18,7 @@ const ESTILOS_DE_AVISO = {
   erro: { caixa: 'border-danger/30 bg-danger/15 text-red-200', icone: AlertCircle },
   sucesso: { caixa: 'border-success/30 bg-success/15 text-emerald-200', icone: CheckCircle2 },
   info: { caixa: 'border-tech/30 bg-tech/10 text-tech-100', icone: Info },
+  alerta: { caixa: 'border-amber/35 bg-amber/10 text-amber', icone: AlertTriangle },
 };
 
 interface AvisoProps {

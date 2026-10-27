@@ -7,10 +7,12 @@ export const validateRequest = (schema: ZodSchema) => {
       schema.parse(req.body);
       next();
     } catch (error: any) {
-      if (error.errors) {
+      // Zod 4 expõe os problemas em `issues`; `errors` era o nome no Zod 3.
+      const problemas = error.issues ?? error.errors;
+      if (Array.isArray(problemas)) {
         return res.status(400).json({
           error: 'Validação falhou',
-          details: error.errors.map((e: any) => e.message),
+          details: problemas.map((e: any) => (e.path?.length ? `${e.path.join('.')}: ${e.message}` : e.message)),
         });
       }
       return res.status(400).json({ error: 'Erro de validação.' });

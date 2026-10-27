@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import router from './routes';
+import protheusRouter from './routes/protheus';
 import { ENV } from './config/env';
 import { createServer } from 'http';
 
@@ -24,11 +25,24 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
-
 // ── Trust Proxy (necessário atrás de Nginx/reverse proxy) ─────
 app.set('trust proxy', 1);
+
+// ── Integração Protheus ───────────────────────────────────────
+// Montada antes do parser global: o PDF chega em Base64 dentro do JSON (15MB de
+// PDF viram ~20MB). Fica fora do limitador global porque todas as chamadas vêm
+// do mesmo IP do AppServer; tem limitador próprio, mais folgado.
+const protheusLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas requisições da integração Protheus. Tente novamente mais tarde.' }
+});
+app.use('/api/integracoes/protheus', protheusLimiter, express.json({ limit: '25mb' }), protheusRouter);
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // ── Limitação de Taxa Global (Rate Limiting) ──────────────────
 const limiter = rateLimit({
@@ -84,6 +98,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
       return res.status(413).json({ error: 'Arquivo muito grande. O tamanho máximo permitido é 15MB.' });
     }
     return res.status(400).json({ error: `Erro no upload: ${err.message}` });
+  }
+  // Corpo JSON acima do limite do parser (10mb geral, 25mb na integração Protheus).
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Requisição muito grande.' });
   }
   if (err) {
     console.error('Erro não tratado:', err);

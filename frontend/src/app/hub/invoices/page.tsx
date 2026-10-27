@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Building2, Calendar, FileText, LayoutGrid, Link2, List, MapPin, SearchX, X } from 'lucide-react';
+import { AlertTriangle, Building2, Calendar, FileText, Inbox, LayoutGrid, Link2, List, MapPin, SearchX, X } from 'lucide-react';
 import api from '@/lib/api';
 import { socket } from '@/lib/socket';
 import ModalGerarLink from '@/components/ui/ModalGerarLink';
@@ -12,7 +12,7 @@ import { Botao } from '@/components/ui/Botao';
 import { Confirmacao } from '@/components/ui/Modal';
 import { FiltroSuspenso } from '@/components/ui/FiltroSuspenso';
 import { Aviso, EstadoVazio, Spinner } from '@/components/ui/Feedback';
-import { emissaoIso, empresaDaFatura, type Fatura } from '@/features/faturas/fatura';
+import { ROTULOS_DE_ORIGEM, emissaoIso, empresaDaFatura, type Fatura, type OrigemDaFatura } from '@/features/faturas/fatura';
 import { GradeDeFaturas, TabelaDeFaturas } from '@/features/faturas/ListaDeFaturas';
 import { ModalVerFatura } from '@/features/faturas/ModalVerFatura';
 import { ModalEditarFatura } from '@/features/faturas/ModalEditarFatura';
@@ -26,6 +26,7 @@ export default function InvoicesPage() {
 
   const [empresa, setEmpresa] = useState<string | null>(null);
   const [local, setLocal] = useState<string | null>(null);
+  const [origem, setOrigem] = useState<OrigemDaFatura | null>(null);
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
   const [modo, setModo] = useState<'grade' | 'tabela'>('grade');
@@ -50,10 +51,12 @@ export default function InvoicesPage() {
 
     socket.on('invoice_created', recarregar);
     socket.on('invoice_updated', recarregar);
+    socket.on('invoice_deleted', recarregar); // ex.: nota excluída no Protheus
 
     return () => {
       socket.off('invoice_created', recarregar);
       socket.off('invoice_updated', recarregar);
+      socket.off('invoice_deleted', recarregar);
       socket.disconnect();
     };
   }, [queryClient]);
@@ -100,6 +103,7 @@ export default function InvoicesPage() {
     return (faturas ?? []).filter((fatura) => {
       if (empresa && empresaDaFatura(fatura) !== empresa) return false;
       if (local && fatura.local !== local) return false;
+      if (origem && fatura.origem !== origem) return false;
       if (dataInicial || dataFinal) {
         const emissao = emissaoIso(fatura.dataEmissao);
         if (!emissao) return false;
@@ -108,7 +112,7 @@ export default function InvoicesPage() {
       }
       return true;
     });
-  }, [faturas, empresa, local, dataInicial, dataFinal]);
+  }, [faturas, empresa, local, origem, dataInicial, dataFinal]);
 
   // Com problema: erro de processamento ou processando há tempo demais.
   const comProblema = useMemo(() => {
@@ -128,11 +132,12 @@ export default function InvoicesPage() {
     return filtradas.filter((fatura) => fatura.status !== 'PROCESSANDO' || comProblema.has(fatura.id));
   }, [faturas, filtradas, soProblemas, comProblema]);
 
-  const temFiltro = Boolean(empresa || local || dataInicial || dataFinal || soProblemas);
+  const temFiltro = Boolean(empresa || local || origem || dataInicial || dataFinal || soProblemas);
 
   function limparFiltros() {
     setEmpresa(null);
     setLocal(null);
+    setOrigem(null);
     setDataInicial('');
     setDataFinal('');
     setSoProblemas(false);
@@ -217,6 +222,19 @@ export default function InvoicesPage() {
           {empresa && locais.length > 0 && (
             <FiltroSuspenso icone={MapPin} rotuloTodos="Todos os locais" opcoes={locais} valor={local} aoMudar={setLocal} />
           )}
+
+          <FiltroSuspenso
+            icone={Inbox}
+            rotuloTodos="Todas as origens"
+            opcoes={Object.values(ROTULOS_DE_ORIGEM)}
+            valor={origem ? ROTULOS_DE_ORIGEM[origem] : null}
+            aoMudar={(rotulo) => {
+              const escolhida = (Object.keys(ROTULOS_DE_ORIGEM) as OrigemDaFatura[]).find(
+                (chave) => ROTULOS_DE_ORIGEM[chave] === rotulo,
+              );
+              setOrigem(escolhida ?? null);
+            }}
+          />
 
           <div className="flex h-10 items-center gap-2 rounded-xl border border-hairline px-3 text-sm">
             <Calendar className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />

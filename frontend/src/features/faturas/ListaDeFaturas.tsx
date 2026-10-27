@@ -3,7 +3,7 @@
 import { AlertTriangle, Building2, Calendar, Download, Pencil, Trash2, User } from 'lucide-react';
 import { BotaoDeIcone } from '@/components/ui/Botao';
 import { formatarDataEmissao, formatarDataHora, formatarMoeda } from '@/lib/formato';
-import { empresaDaFatura, formatarConsumo, localDaFatura, type Fatura } from './fatura';
+import { ROTULOS_DE_ORIGEM, empresaDaFatura, formatarConsumo, localDaFatura, type Fatura } from './fatura';
 
 export interface AcoesDaLista {
   /** Faturas com erro ou paradas no processamento. */
@@ -23,6 +23,15 @@ function SeloDeProblema({ fatura }: { fatura: Fatura }) {
     <span className="pill bg-danger/15 text-danger-200">
       <AlertTriangle className="h-3 w-3" aria-hidden="true" />
       {fatura.status === 'ERRO_PROCESSAMENTO' ? 'Erro no processamento' : 'Processamento parado'}
+    </span>
+  );
+}
+
+export function SeloDeOrigem({ fatura }: { fatura: Fatura }) {
+  const protheus = fatura.origem === 'PROTHEUS';
+  return (
+    <span className={`pill ${protheus ? 'bg-tech/15 text-tech-100' : 'bg-white/[0.06] text-muted'}`}>
+      {protheus ? ROTULOS_DE_ORIGEM.PROTHEUS : 'Link'}
     </span>
   );
 }
@@ -48,6 +57,7 @@ export function TabelaDeFaturas({ faturas, comProblema, aoAbrir, ...acoes }: Lis
           <thead className="border-b border-hairline text-[12.5px] text-muted">
             <tr>
               <th className="px-5 py-3 font-semibold">Empresa</th>
+              <th className="px-4 py-3 font-semibold">Origem</th>
               <th className="px-4 py-3 font-semibold">Emitente</th>
               <th className="px-4 py-3 font-semibold">UC</th>
               <th className="px-4 py-3 font-semibold">Emissão</th>
@@ -79,6 +89,9 @@ export function TabelaDeFaturas({ faturas, comProblema, aoAbrir, ...acoes }: Lis
                         <SeloDeProblema fatura={fatura} />
                       </span>
                     )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <SeloDeOrigem fatura={fatura} />
                   </td>
                   <td className="px-4 py-3">
                     <span className="block max-w-[220px] truncate text-graphite/90" title={fatura.emitente ?? ''}>
@@ -144,6 +157,7 @@ export function GradeDeFaturas({ faturas, comProblema, aoAbrir, ...acoes }: List
                 </h3>
                 <p className="truncate text-[13px] text-muted">{localDaFatura(fatura) || 'Local não especificado'}</p>
               </div>
+              <SeloDeOrigem fatura={fatura} />
             </header>
 
             {problema && (
