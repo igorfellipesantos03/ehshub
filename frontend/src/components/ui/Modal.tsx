@@ -6,9 +6,76 @@ import { X } from 'lucide-react';
 import { Botao, type VarianteDeBotao } from './Botao';
 import { Aviso } from './Feedback';
 
+// Janelas abertas, da mais antiga para a do topo (ex: edição aberta por cima da gaveta).
+const janelasAbertas: object[] = [];
+
+/**
+ * Comportamento comum de janela: Esc fecha só a do topo, a página atrás não
+ * rola e o foco vai para o primeiro campo (sem campo, para a própria caixa).
+ */
+function useJanela(aoFechar: () => void) {
+  const caixaRef = useRef<HTMLDivElement>(null);
+  // Em ref: quem usa costuma passar uma função nova a cada render, e o efeito
+  // abaixo só deve rodar ao abrir.
+  const aoFecharRef = useRef(aoFechar);
+  useEffect(() => {
+    aoFecharRef.current = aoFechar;
+  });
+
+  useEffect(() => {
+    const esta = {};
+    janelasAbertas.push(esta);
+    const aoTeclar = (evento: KeyboardEvent) => {
+      if (evento.key === 'Escape' && janelasAbertas[janelasAbertas.length - 1] === esta) aoFecharRef.current();
+    };
+    document.addEventListener('keydown', aoTeclar);
+    const overflowAnterior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const primeiro = caixaRef.current?.querySelector<HTMLElement>('input, textarea, select, button[data-autofoco]');
+    (primeiro ?? caixaRef.current)?.focus();
+
+    return () => {
+      janelasAbertas.splice(janelasAbertas.indexOf(esta), 1);
+      document.removeEventListener('keydown', aoTeclar);
+      document.body.style.overflow = overflowAnterior;
+    };
+  }, []);
+
+  return caixaRef;
+}
+
+interface CabecalhoDaJanelaProps {
+  id: string;
+  titulo: string;
+  descricao?: ReactNode;
+  aoFechar: () => void;
+}
+
+function CabecalhoDaJanela({ id, titulo, descricao, aoFechar }: CabecalhoDaJanelaProps) {
+  return (
+    <header className="flex items-start gap-3 border-b border-hairline px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <h2 id={id} className="titulo-secao text-base">
+          {titulo}
+        </h2>
+        {descricao && <div className="mt-0.5 text-[13px] text-muted">{descricao}</div>}
+      </div>
+      <button
+        type="button"
+        onClick={aoFechar}
+        aria-label="Fechar"
+        className="-mr-1.5 flex h-8 w-8 items-center justify-center rounded-control text-muted transition-colors hover:bg-raised hover:text-white"
+      >
+        <X className="h-[18px] w-[18px]" />
+      </button>
+    </header>
+  );
+}
+
 interface ModalProps {
   titulo: string;
-  descricao?: string;
+  descricao?: ReactNode;
   aoFechar: () => void;
   children: ReactNode;
   rodape?: ReactNode;
@@ -21,34 +88,10 @@ interface ModalProps {
  */
 export function Modal({ titulo, descricao, aoFechar, children, rodape, largura = 'max-w-lg' }: ModalProps) {
   const tituloId = useId();
-  const caixaRef = useRef<HTMLDivElement>(null);
-  // Em ref: quem usa costuma passar uma função nova a cada render, e o efeito
-  // abaixo (que também põe o foco no primeiro campo) só deve rodar ao abrir.
-  const aoFecharRef = useRef(aoFechar);
-  useEffect(() => {
-    aoFecharRef.current = aoFechar;
-  });
-
-  useEffect(() => {
-    const aoTeclar = (evento: KeyboardEvent) => evento.key === 'Escape' && aoFecharRef.current();
-    document.addEventListener('keydown', aoTeclar);
-    const overflowAnterior = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    // Foco no primeiro campo; sem campo, na própria caixa.
-    const primeiro = caixaRef.current?.querySelector<HTMLElement>(
-      'input, textarea, select, button[data-autofoco]',
-    );
-    (primeiro ?? caixaRef.current)?.focus();
-
-    return () => {
-      document.removeEventListener('keydown', aoTeclar);
-      document.body.style.overflow = overflowAnterior;
-    };
-  }, []);
+  const caixaRef = useJanela(aoFechar);
 
   return createPortal(
-    <div className="scheme-dark fixed inset-0 z-[70] flex items-end justify-center p-0 sm:items-center sm:p-6">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center p-0 sm:items-center sm:p-6">
       <div className="animate-surgir absolute inset-0 bg-night/80 backdrop-blur-sm" onClick={aoFechar} />
 
       <div
@@ -59,27 +102,48 @@ export function Modal({ titulo, descricao, aoFechar, children, rodape, largura =
         tabIndex={-1}
         className={`animate-rise relative flex max-h-[92dvh] w-full ${largura} flex-col overflow-hidden rounded-t-card bg-surface text-graphite shadow-lift focus:outline-none sm:rounded-card`}
       >
-        <header className="flex items-start gap-3 border-b border-hairline px-5 py-4">
-          <div className="min-w-0 flex-1">
-            <h2 id={tituloId} className="titulo-secao">
-              {titulo}
-            </h2>
-            {descricao && <p className="mt-0.5 text-[13.5px] text-muted">{descricao}</p>}
-          </div>
-          <button
-            type="button"
-            onClick={aoFechar}
-            aria-label="Fechar"
-            className="-mr-1.5 flex h-8 w-8 items-center justify-center rounded-xl text-muted transition-colors hover:bg-raised hover:text-white"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </header>
+        <CabecalhoDaJanela id={tituloId} titulo={titulo} descricao={descricao} aoFechar={aoFechar} />
 
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
 
         {rodape && (
-          <footer className="flex flex-wrap justify-end gap-2 border-t border-hairline px-5 py-3.5">{rodape}</footer>
+          <footer className="flex flex-wrap justify-end gap-2 border-t border-hairline bg-deep/60 px-5 py-3">{rodape}</footer>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+interface GavetaProps extends ModalProps {
+  /** Linha logo abaixo do cabeçalho (selos, situação). */
+  faixa?: ReactNode;
+}
+
+/** Painel que desliza da direita: detalhe de um registro sem perder a lista de vista. */
+export function Gaveta({ titulo, descricao, faixa, aoFechar, children, rodape, largura = 'max-w-xl' }: GavetaProps) {
+  const tituloId = useId();
+  const caixaRef = useJanela(aoFechar);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex justify-end">
+      <div className="animate-surgir absolute inset-0 bg-night/70 backdrop-blur-[2px]" onClick={aoFechar} />
+
+      <div
+        ref={caixaRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={tituloId}
+        tabIndex={-1}
+        className={`animate-deslizar-direita relative flex h-dvh w-full ${largura} flex-col border-l border-hairline bg-surface text-graphite shadow-lift focus:outline-none`}
+      >
+        <CabecalhoDaJanela id={tituloId} titulo={titulo} descricao={descricao} aoFechar={aoFechar} />
+        {faixa && <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-5 py-2.5">{faixa}</div>}
+
+        <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
+
+        {rodape && (
+          <footer className="flex flex-wrap justify-end gap-2 border-t border-hairline bg-deep/60 px-5 py-3">{rodape}</footer>
         )}
       </div>
     </div>,
@@ -125,7 +189,7 @@ export function Confirmacao({
         </>
       }
     >
-      <div className="space-y-3 text-[14px] leading-relaxed text-graphite/90">
+      <div className="space-y-3 text-sm leading-relaxed text-graphite/90">
         {children}
         {erro && <Aviso tipo="erro">{erro}</Aviso>}
       </div>

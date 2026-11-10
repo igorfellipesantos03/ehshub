@@ -24,10 +24,12 @@ export interface Fatura {
   reativoExcedente: number | null;
   xmlFileName: string | null;
   filePath: string | null;
-  linkId: string;
+  linkId: string | null;
   originalData?: Partial<Record<keyof Fatura, unknown>> | null;
   status: 'PROCESSANDO' | 'CONCLUIDO' | 'ERRO_PROCESSAMENTO' | 'MANUAL';
   errorReason?: string | null;
+  // Quando o n8n tirou a fatura da fila. Nulo enquanto ela espera no RabbitMQ.
+  processamentoIniciadoEm?: string | null;
   origem: OrigemDaFatura;
   // Só nas faturas do Protheus: empresa|filial|documento|serie|fornecedor|loja
   chaveProtheus?: string | null;
@@ -56,6 +58,27 @@ export const ROTULOS_DE_ORIGEM: Record<OrigemDaFatura, string> = {
 
 export const empresaDaFatura = (fatura: Fatura) => fatura.empresa || fatura.link?.empresa || '';
 export const localDaFatura = (fatura: Fatura) => fatura.local || fatura.link?.filial || '';
+
+// Texto em que a busca da lista procura, sem acento e em minúsculas.
+export const normalizarBusca = (texto: string) =>
+  texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+export const textoDeBusca = (fatura: Fatura) =>
+  normalizarBusca(
+    [
+      empresaDaFatura(fatura),
+      localDaFatura(fatura),
+      fatura.emitente,
+      fatura.faturaNumber,
+      fatura.numeroUc,
+      fatura.mesReferencia,
+      fatura.xmlFileName,
+      fatura.senderName,
+      fatura.chaveProtheus?.split('|')[2], // nº do documento de entrada
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
 
 // Documento de entrada do Protheus, lido da chave gravada no envio.
 export const documentoProtheus = (fatura: Fatura) => {

@@ -1,75 +1,101 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Building2, Calendar, FileText, Inbox, LayoutGrid, Link2, List, MapPin, SearchX, X } from 'lucide-react';
+import { Suspense, useMemo, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Building2, Calendar, FileSpreadsheet, FileText, Inbox, Link2, MapPin, SearchX, X } from 'lucide-react';
 import api from '@/lib/api';
-import { socket } from '@/lib/socket';
+import { useUsuario } from '@/lib/sessao';
 import ModalGerarLink from '@/components/ui/ModalGerarLink';
 import { CabecalhoDePagina } from '@/components/ui/CabecalhoDePagina';
 import { Botao } from '@/components/ui/Botao';
+import { CampoDeBusca } from '@/components/ui/Campo';
 import { Confirmacao } from '@/components/ui/Modal';
 import { FiltroSuspenso } from '@/components/ui/FiltroSuspenso';
-import { Aviso, EstadoVazio, Spinner } from '@/components/ui/Feedback';
-import { ROTULOS_DE_ORIGEM, emissaoIso, empresaDaFatura, type Fatura, type OrigemDaFatura } from '@/features/faturas/fatura';
-import { GradeDeFaturas, TabelaDeFaturas } from '@/features/faturas/ListaDeFaturas';
-import { ModalVerFatura } from '@/features/faturas/ModalVerFatura';
+import { Paginacao } from '@/components/ui/Paginacao';
+import { Aviso, CarregandoArea, EstadoVazio } from '@/components/ui/Feedback';
+import {
+  ROTULOS_DE_ORIGEM,
+  emissaoIso,
+  empresaDaFatura,
+  localDaFatura,
+  normalizarBusca,
+  textoDeBusca,
+  type Fatura,
+  type OrigemDaFatura,
+} from '@/features/faturas/fatura';
+import {
+  ordenarLinhas,
+  TabelaDeFaturas,
+  type CampoDeOrdenacao,
+  type LinhaDeFatura,
+  type Ordenacao,
+} from '@/features/faturas/ListaDeFaturas';
+import { GavetaDaFatura } from '@/features/faturas/GavetaDaFatura';
 import { ModalEditarFatura } from '@/features/faturas/ModalEditarFatura';
+import { PainelDeProcessamento } from '@/features/faturas/PainelDeProcessamento';
+import { situacaoDaFatura } from '@/features/faturas/processamento';
+import { precisaDeAtencao } from '@/features/faturas/indicadores';
+import { baixarArquivoDaFatura, exportarCsv } from '@/features/faturas/arquivos';
+import { useFaturas } from '@/features/faturas/useFaturas';
 
-// Fatura em processamento há mais que isso é tratada como travada.
-const MINUTOS_PARA_TRAVAR = 2;
+const POR_PAGINA = 50;
+
+type Visao = 'todas' | 'atencao' | 'processamento';
+
+const VISOES: Record<Visao, (linha: LinhaDeFatura) => boolean> = {
+  todas: () => true,
+  atencao: precisaDeAtencao,
+  processamento: ({ situacao }) => situacao === 'processando' || situacao === 'naFila',
+};
+
+const ehVisao = (valor: string | null): valor is Visao => valor !== null && valor in VISOES;
 
 export default function InvoicesPage() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
+  // useSearchParams pede um Suspense acima dele para a página poder ser pré-renderizada.
+  return (
+    <Suspense fallback={<CarregandoArea rotulo="Carregando faturas" />}>
+      <Faturas />
+    </Suspense>
+  );
+}
 
+function Faturas() {
+  const queryClient = useQueryClient();
+  const usuario = useUsuario();
+  const admin = usuario?.role === 'ADMIN';
+  const parametros = useSearchParams();
+  const { faturas, processamento, agora, isLoading, isError } = useFaturas(admin);
+
+  // O Painel abre esta tela já numa visão (ex: ?visao=atencao).
+  const [visao, setVisao] = useState<Visao>(() => {
+    const pedida = parametros.get('visao');
+    return ehVisao(pedida) ? pedida : 'todas';
+  });
+  const [busca, setBusca] = useState('');
   const [empresa, setEmpresa] = useState<string | null>(null);
   const [local, setLocal] = useState<string | null>(null);
   const [origem, setOrigem] = useState<OrigemDaFatura | null>(null);
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
-  const [modo, setModo] = useState<'grade' | 'tabela'>('grade');
-  const [soProblemas, setSoProblemas] = useState(false);
+  const [ordenacao, setOrdenacao] = useState<Ordenacao>({ campo: 'recebida', direcao: 'desc' });
+  const [pagina, setPagina] = useState(1);
 
   const [gerandoLink, setGerandoLink] = useState(false);
-  const [vendo, setVendo] = useState<Fatura | null>(null);
+  // Guarda o id: a gaveta acompanha a fatura quando ela muda em tempo real. O Painel abre uma direto (?fatura=id).
+  const [vendoId, setVendoId] = useState<string | null>(() => parametros.get('fatura'));
   const [editando, setEditando] = useState<Fatura | null>(null);
   const [excluindo, setExcluindo] = useState<Fatura | null>(null);
   const [erroDeDownload, setErroDeDownload] = useState(false);
-  const [agora, setAgora] = useState(() => new Date());
 
-  const { data: faturas, isLoading, isError } = useQuery<Fatura[]>({
-    queryKey: ['invoices'],
-    queryFn: async () => (await api.get('/invoice/uploads')).data,
-  });
-
-  // Atualizações em tempo real (Socket.io).
-  useEffect(() => {
-    socket.connect();
-    const recarregar = () => queryClient.invalidateQueries({ queryKey: ['invoices'] });
-
-    socket.on('invoice_created', recarregar);
-    socket.on('invoice_updated', recarregar);
-    socket.on('invoice_deleted', recarregar); // ex.: nota excluída no Protheus
-
-    return () => {
-      socket.off('invoice_created', recarregar);
-      socket.off('invoice_updated', recarregar);
-      socket.off('invoice_deleted', recarregar);
-      socket.disconnect();
-    };
-  }, [queryClient]);
-
-  // O relógio anda sozinho para as faturas travadas aparecerem sem recarregar a página.
-  useEffect(() => {
-    const intervalo = setInterval(() => setAgora(new Date()), 15000);
-    return () => clearInterval(intervalo);
-  }, []);
+  // Qualquer mudança de filtro volta para a primeira página.
+  function filtrar(aplicar: () => void) {
+    aplicar();
+    setPagina(1);
+  }
 
   const salvar = useMutation({
-    mutationFn: async ({ id, dados }: { id: string; dados: Partial<Fatura> }) =>
-      (await api.put(`/invoice/${id}`, dados)).data,
+    mutationFn: async ({ id, dados }: { id: string; dados: Partial<Fatura> }) => (await api.put(`/invoice/${id}`, dados)).data,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       setEditando(null);
@@ -83,26 +109,40 @@ export default function InvoicesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       setExcluindo(null);
-      setVendo(null);
+      setVendoId(null);
     },
   });
 
-  const empresas = useMemo(
-    () => [...new Set((faturas ?? []).map(empresaDaFatura).filter(Boolean))].sort(),
-    [faturas],
+  const linhas = useMemo<LinhaDeFatura[]>(
+    () => (faturas ?? []).map((fatura) => ({ fatura, situacao: situacaoDaFatura(fatura, processamento) })),
+    [faturas, processamento],
   );
+
+  const contagem = useMemo(
+    () => ({
+      todas: linhas.length,
+      atencao: linhas.filter(VISOES.atencao).length,
+      processamento: linhas.filter(VISOES.processamento).length,
+    }),
+    [linhas],
+  );
+
+  const empresas = useMemo(() => [...new Set(linhas.map(({ fatura }) => empresaDaFatura(fatura)).filter(Boolean))].sort(), [linhas]);
 
   // Os locais dependem da empresa escolhida.
   const locais = useMemo(() => {
-    if (!faturas || !empresa) return [];
-    const daEmpresa = faturas.filter((fatura) => empresaDaFatura(fatura) === empresa && fatura.local);
-    return [...new Set(daEmpresa.map((fatura) => fatura.local as string))].sort();
-  }, [faturas, empresa]);
+    if (!empresa) return [];
+    const daEmpresa = linhas.filter(({ fatura }) => empresaDaFatura(fatura) === empresa);
+    return [...new Set(daEmpresa.map(({ fatura }) => localDaFatura(fatura)).filter(Boolean))].sort();
+  }, [linhas, empresa]);
 
   const filtradas = useMemo(() => {
-    return (faturas ?? []).filter((fatura) => {
+    const termo = normalizarBusca(busca.trim());
+    const resultado = linhas.filter((linha) => {
+      const { fatura } = linha;
+      if (!VISOES[visao](linha)) return false;
       if (empresa && empresaDaFatura(fatura) !== empresa) return false;
-      if (local && fatura.local !== local) return false;
+      if (local && localDaFatura(fatura) !== local) return false;
       if (origem && fatura.origem !== origem) return false;
       if (dataInicial || dataFinal) {
         const emissao = emissaoIso(fatura.dataEmissao);
@@ -110,138 +150,144 @@ export default function InvoicesPage() {
         if (dataInicial && emissao < dataInicial) return false;
         if (dataFinal && emissao > dataFinal) return false;
       }
+      if (termo && !textoDeBusca(fatura).includes(termo)) return false;
       return true;
     });
-  }, [faturas, empresa, local, origem, dataInicial, dataFinal]);
+    return ordenarLinhas(resultado, ordenacao);
+  }, [linhas, visao, empresa, local, origem, dataInicial, dataFinal, busca, ordenacao]);
 
-  // Com problema: erro de processamento ou processando há tempo demais.
-  const comProblema = useMemo(() => {
-    const ids = new Set<string>();
-    for (const fatura of faturas ?? []) {
-      const minutos = (agora.getTime() - new Date(fatura.createdAt).getTime()) / 60000;
-      if (fatura.status === 'ERRO_PROCESSAMENTO' || (fatura.status === 'PROCESSANDO' && minutos > MINUTOS_PARA_TRAVAR)) {
-        ids.add(fatura.id);
-      }
-    }
-    return ids;
-  }, [faturas, agora]);
+  const totalDePaginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
+  const paginaAtual = Math.min(pagina, totalDePaginas);
+  const daPagina = filtradas.slice((paginaAtual - 1) * POR_PAGINA, paginaAtual * POR_PAGINA);
 
-  // Fora do modo "só problemas", quem ainda está processando normalmente não aparece.
-  const visiveis = useMemo(() => {
-    if (soProblemas) return (faturas ?? []).filter((fatura) => comProblema.has(fatura.id));
-    return filtradas.filter((fatura) => fatura.status !== 'PROCESSANDO' || comProblema.has(fatura.id));
-  }, [faturas, filtradas, soProblemas, comProblema]);
-
-  const temFiltro = Boolean(empresa || local || origem || dataInicial || dataFinal || soProblemas);
+  const vendo = linhas.find(({ fatura }) => fatura.id === vendoId) ?? null;
+  const temFiltro = Boolean(busca || empresa || local || origem || dataInicial || dataFinal);
 
   function limparFiltros() {
-    setEmpresa(null);
-    setLocal(null);
-    setOrigem(null);
-    setDataInicial('');
-    setDataFinal('');
-    setSoProblemas(false);
+    filtrar(() => {
+      setBusca('');
+      setEmpresa(null);
+      setLocal(null);
+      setOrigem(null);
+      setDataInicial('');
+      setDataFinal('');
+    });
+  }
+
+  function ordenarPor(campo: CampoDeOrdenacao) {
+    setOrdenacao((atual) =>
+      atual.campo === campo
+        ? { campo, direcao: atual.direcao === 'asc' ? 'desc' : 'asc' }
+        : { campo, direcao: campo === 'empresa' ? 'asc' : 'desc' },
+    );
   }
 
   async function baixar(fatura: Fatura) {
     setErroDeDownload(false);
     try {
-      const response = await api.get(`/invoice/${fatura.id}/download`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fatura.xmlFileName || 'arquivo';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      await baixarArquivoDaFatura(fatura);
     } catch {
       setErroDeDownload(true);
     }
   }
 
-  const acoes = {
-    comProblema: (fatura: Fatura) => comProblema.has(fatura.id),
-    aoAbrir: setVendo,
-    aoEditar: (fatura: Fatura) => {
-      salvar.reset();
-      setEditando(fatura);
-    },
-    aoExcluir: (fatura: Fatura) => {
-      excluir.reset();
-      setExcluindo(fatura);
-    },
-    aoBaixar: baixar,
-  };
+  if (usuario && !admin) {
+    return <Aviso tipo="info">A lista de faturas é restrita a administradores.</Aviso>;
+  }
 
   return (
-    <div className="animate-rise">
+    <div className="animate-rise space-y-5">
       <CabecalhoDePagina
         titulo="Faturas"
-        descricao="Faturas recebidas pelos links de coleta, com os dados extraídos automaticamente de cada arquivo."
+        descricao="Faturas recebidas do Protheus e dos links de coleta, com os dados lidos automaticamente de cada arquivo."
       >
-        {comProblema.size > 0 && (
-          <Botao
-            variante={soProblemas ? 'perigo' : 'alerta'}
-            icone={AlertTriangle}
-            onClick={() => setSoProblemas((atual) => !atual)}
-            aria-pressed={soProblemas}
-          >
-            {soProblemas
-              ? 'Voltar para todas'
-              : `${comProblema.size} ${comProblema.size === 1 ? 'fatura com problema' : 'faturas com problema'}`}
-          </Botao>
-        )}
-        <Botao icone={Link2} onClick={() => router.push('/hub/links')}>
-          Gerenciar links
+        <Botao icone={FileSpreadsheet} onClick={() => exportarCsv(filtradas)} disabled={filtradas.length === 0}>
+          Exportar CSV
         </Botao>
-        <Botao variante="primario" icone={Link2} onClick={() => setGerandoLink(true)}>
+        <Botao icone={Link2} onClick={() => setGerandoLink(true)}>
           Gerar link de coleta
         </Botao>
       </CabecalhoDePagina>
 
-      {erroDeDownload && (
-        <Aviso tipo="erro" className="mt-5">
-          O arquivo desta fatura não está disponível para download.
-        </Aviso>
-      )}
+      {erroDeDownload && <Aviso tipo="erro">O arquivo desta fatura não está disponível para download.</Aviso>}
 
-      {(empresas.length > 0 || temFiltro) && (
-        <div className="mt-7 flex flex-wrap items-center gap-2.5">
+      <PainelDeProcessamento situacao={processamento} agora={agora} />
+
+      <div className="card overflow-hidden">
+        <div className="flex gap-1 overflow-x-auto border-b border-hairline px-3" role="tablist" aria-label="Visão das faturas">
+          <Aba ativa={visao === 'todas'} contagem={contagem.todas} onClick={() => filtrar(() => setVisao('todas'))}>
+            Todas
+          </Aba>
+          <Aba
+            ativa={visao === 'atencao'}
+            contagem={contagem.atencao}
+            alerta
+            onClick={() => filtrar(() => setVisao('atencao'))}
+          >
+            Precisam de atenção
+          </Aba>
+          <Aba
+            ativa={visao === 'processamento'}
+            contagem={contagem.processamento}
+            onClick={() => filtrar(() => setVisao('processamento'))}
+          >
+            Em processamento
+          </Aba>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-b border-hairline bg-deep/40 px-3 py-2.5">
+          <CampoDeBusca
+            valor={busca}
+            aoMudar={(valor) => filtrar(() => setBusca(valor))}
+            placeholder="Buscar emitente, nº, UC, documento…"
+            className="w-full sm:w-72"
+          />
           <FiltroSuspenso
             icone={Building2}
-            rotuloTodos="Todas as empresas"
+            rotuloTodos="Empresa"
             opcoes={empresas}
             valor={empresa}
-            aoMudar={(nova) => {
-              setEmpresa(nova);
-              setLocal(null);
-            }}
+            aoMudar={(nova) =>
+              filtrar(() => {
+                setEmpresa(nova);
+                setLocal(null);
+              })
+            }
           />
-
           {empresa && locais.length > 0 && (
-            <FiltroSuspenso icone={MapPin} rotuloTodos="Todos os locais" opcoes={locais} valor={local} aoMudar={setLocal} />
+            <FiltroSuspenso
+              icone={MapPin}
+              rotuloTodos="Local"
+              opcoes={locais}
+              valor={local}
+              aoMudar={(novo) => filtrar(() => setLocal(novo))}
+            />
           )}
-
           <FiltroSuspenso
             icone={Inbox}
-            rotuloTodos="Todas as origens"
+            rotuloTodos="Origem"
             opcoes={Object.values(ROTULOS_DE_ORIGEM)}
             valor={origem ? ROTULOS_DE_ORIGEM[origem] : null}
-            aoMudar={(rotulo) => {
-              const escolhida = (Object.keys(ROTULOS_DE_ORIGEM) as OrigemDaFatura[]).find(
-                (chave) => ROTULOS_DE_ORIGEM[chave] === rotulo,
-              );
-              setOrigem(escolhida ?? null);
-            }}
+            aoMudar={(rotulo) =>
+              filtrar(() => {
+                const escolhida = (Object.keys(ROTULOS_DE_ORIGEM) as OrigemDaFatura[]).find(
+                  (chave) => ROTULOS_DE_ORIGEM[chave] === rotulo,
+                );
+                setOrigem(escolhida ?? null);
+              })
+            }
           />
-
-          <div className="flex h-10 items-center gap-2 rounded-xl border border-hairline px-3 text-sm">
+          <div
+            className={`flex h-9 items-center gap-2 rounded-control border px-2.5 text-[13px] ${
+              dataInicial || dataFinal ? 'border-tech/40 bg-tech/10' : 'border-hairline bg-surface'
+            }`}
+          >
             <Calendar className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+            <span className="text-muted">Emissão</span>
             <input
               type="date"
               value={dataInicial}
-              onChange={(evento) => setDataInicial(evento.target.value)}
+              onChange={(evento) => filtrar(() => setDataInicial(evento.target.value))}
               aria-label="Emissão a partir de"
               className="bg-transparent text-graphite focus:outline-none"
             />
@@ -249,81 +295,84 @@ export default function InvoicesPage() {
             <input
               type="date"
               value={dataFinal}
-              onChange={(evento) => setDataFinal(evento.target.value)}
+              onChange={(evento) => filtrar(() => setDataFinal(evento.target.value))}
               aria-label="Emissão até"
               className="bg-transparent text-graphite focus:outline-none"
             />
           </div>
-
           {temFiltro && (
             <button
               type="button"
               onClick={limparFiltros}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-semibold text-muted transition-colors hover:text-white"
+              className="inline-flex h-9 items-center gap-1.5 rounded-control px-2 text-[13px] font-semibold text-muted transition-colors hover:text-white"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
-              Limpar filtros
+              Limpar
             </button>
           )}
-
-          <span className="ml-auto text-[13px] tabular-nums text-muted">
-            {visiveis.length} {visiveis.length === 1 ? 'fatura' : 'faturas'}
+          <span className="ml-auto text-xs tabular-nums text-muted">
+            {filtradas.length} {filtradas.length === 1 ? 'fatura' : 'faturas'}
           </span>
-
-          <div className="flex rounded-xl border border-hairline p-1" role="group" aria-label="Modo de exibição">
-            <BotaoDeModo icone={LayoutGrid} rotulo="Exibir em cartões" ativo={modo === 'grade'} onClick={() => setModo('grade')} />
-            <BotaoDeModo icone={List} rotulo="Exibir em tabela" ativo={modo === 'tabela'} onClick={() => setModo('tabela')} />
-          </div>
         </div>
-      )}
 
-      <div className="mt-5">
-        {isLoading ? (
-          <div className="flex justify-center py-24 text-muted" role="status" aria-label="Carregando faturas">
-            <Spinner className="h-8 w-8" />
-          </div>
+        {isLoading || !usuario ? (
+          <CarregandoArea rotulo="Carregando faturas" />
         ) : isError ? (
-          <Aviso tipo="erro">Não foi possível carregar as faturas. Recarregue a página para tentar de novo.</Aviso>
-        ) : !faturas?.length ? (
-          <div className="card">
-            <EstadoVazio
-              icone={FileText}
-              titulo="Nenhuma fatura recebida"
-              descricao="Gere um link de coleta e envie para a filial. Assim que um arquivo for anexado, a fatura aparece aqui."
-            >
-              <Botao variante="tech" icone={Link2} onClick={() => setGerandoLink(true)}>
-                Criar primeiro link
-              </Botao>
-            </EstadoVazio>
+          <div className="p-4">
+            <Aviso tipo="erro">Não foi possível carregar as faturas. Recarregue a página para tentar de novo.</Aviso>
           </div>
-        ) : visiveis.length === 0 ? (
-          <div className="card">
-            <EstadoVazio icone={SearchX} titulo="Nenhuma fatura encontrada" descricao="Nenhuma fatura corresponde aos filtros aplicados.">
-              {temFiltro && (
-                <button type="button" onClick={limparFiltros} className="text-sm font-semibold text-tech hover:underline">
-                  Limpar filtros
-                </button>
-              )}
-            </EstadoVazio>
-          </div>
-        ) : modo === 'tabela' ? (
-          <TabelaDeFaturas faturas={visiveis} {...acoes} />
+        ) : linhas.length === 0 ? (
+          <EstadoVazio
+            icone={FileText}
+            titulo="Nenhuma fatura recebida"
+            descricao="As faturas chegam pela integração com o Protheus ou pelos links de coleta enviados às filiais."
+          />
+        ) : filtradas.length === 0 ? (
+          <EstadoVazio
+            icone={SearchX}
+            titulo="Nenhuma fatura encontrada"
+            descricao={
+              visao === 'atencao' && !temFiltro
+                ? 'Nenhuma fatura com erro ou divergência. Tudo em dia.'
+                : 'Nenhuma fatura corresponde à busca e aos filtros aplicados.'
+            }
+          >
+            {temFiltro && (
+              <button type="button" onClick={limparFiltros} className="text-sm font-semibold text-tech hover:underline">
+                Limpar filtros
+              </button>
+            )}
+          </EstadoVazio>
         ) : (
-          <GradeDeFaturas faturas={visiveis} {...acoes} />
+          <>
+            <TabelaDeFaturas
+              linhas={daPagina}
+              ordenacao={ordenacao}
+              aoOrdenar={ordenarPor}
+              aoAbrir={(fatura) => setVendoId(fatura.id)}
+              aoBaixar={baixar}
+            />
+            <Paginacao pagina={paginaAtual} totalDeItens={filtradas.length} porPagina={POR_PAGINA} aoMudar={setPagina} />
+          </>
         )}
       </div>
 
       <ModalGerarLink isOpen={gerandoLink} onClose={() => setGerandoLink(false)} />
 
       {vendo && (
-        <ModalVerFatura
-          fatura={vendo}
-          aoFechar={() => setVendo(null)}
-          aoBaixar={() => baixar(vendo)}
+        <GavetaDaFatura
+          fatura={vendo.fatura}
+          situacao={vendo.situacao}
+          agora={agora}
+          aoFechar={() => setVendoId(null)}
+          aoBaixar={() => baixar(vendo.fatura)}
           aoEditar={() => {
             salvar.reset();
-            setEditando(vendo);
-            setVendo(null);
+            setEditando(vendo.fatura);
+          }}
+          aoExcluir={() => {
+            excluir.reset();
+            setExcluindo(vendo.fatura);
           }}
         />
       )}
@@ -359,26 +408,35 @@ export default function InvoicesPage() {
   );
 }
 
-interface BotaoDeModoProps {
-  icone: typeof List;
-  rotulo: string;
-  ativo: boolean;
+interface AbaProps {
+  ativa: boolean;
+  contagem: number;
+  /** Contagem em destaque quando há algo a resolver. */
+  alerta?: boolean;
   onClick: () => void;
+  children: ReactNode;
 }
 
-function BotaoDeModo({ icone: Icone, rotulo, ativo, onClick }: BotaoDeModoProps) {
+function Aba({ ativa, contagem, alerta = false, onClick, children }: AbaProps) {
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={ativa}
       onClick={onClick}
-      aria-label={rotulo}
-      aria-pressed={ativo}
-      title={rotulo}
-      className={`flex h-7 w-8 items-center justify-center rounded-lg transition-colors ${
-        ativo ? 'bg-tech/15 text-tech-100' : 'text-muted hover:bg-raised hover:text-white'
+      className={`relative flex h-11 shrink-0 items-center gap-2 px-3 text-[13px] font-semibold transition-colors ${
+        ativa ? 'text-white' : 'text-muted hover:text-graphite'
       }`}
     >
-      <Icone className="h-4 w-4" aria-hidden="true" />
+      {children}
+      <span
+        className={`rounded-md px-1.5 text-[11px] tabular-nums leading-5 ${
+          alerta && contagem > 0 ? 'bg-amber/15 text-amber' : 'bg-white/[0.06] text-muted'
+        }`}
+      >
+        {contagem}
+      </span>
+      {ativa && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-tech" aria-hidden="true" />}
     </button>
   );
 }

@@ -1,170 +1,232 @@
 'use client';
 
-import { useEffect, useId, useState, type FormEvent } from 'react';
-import { CheckCircle, Pencil, Plus, Shield, Trash2, Users, XCircle } from 'lucide-react';
-import { useUserStore, type User } from '@/store/userStore';
+import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
+import { CheckCircle, Pencil, Plus, SearchX, Trash2, Users, XCircle } from 'lucide-react';
+import api from '@/lib/api';
 import { CabecalhoDePagina } from '@/components/ui/CabecalhoDePagina';
 import { Botao, BotaoDeIcone } from '@/components/ui/Botao';
+import { CampoDeBusca, Input, Select } from '@/components/ui/Campo';
 import { Confirmacao, Modal } from '@/components/ui/Modal';
-import { Input, Select } from '@/components/ui/Campo';
-import { Aviso, EstadoVazio, Spinner } from '@/components/ui/Feedback';
-import { iniciais } from '@/lib/formato';
+import { Aviso, CarregandoArea, EstadoVazio, Selo, type TomDeSelo } from '@/components/ui/Feedback';
+import { normalizarBusca } from '@/features/faturas/fatura';
+import { formatarDataHora, iniciais } from '@/lib/formato';
+
+interface Usuario {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'REVIEWER' | 'USER';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  createdAt: string;
+}
 
 interface Formulario {
   name: string;
   email: string;
   password: string;
-  role: User['role'];
-  status: User['status'];
+  role: Usuario['role'];
+  status: Usuario['status'];
 }
 
-const PAPEIS: Record<User['role'], string> = {
+const PAPEIS: Record<Usuario['role'], string> = {
   ADMIN: 'Administrador',
   REVIEWER: 'Revisor',
   USER: 'EHS',
 };
 
-const STATUS: Record<User['status'], { rotulo: string; estilo: string }> = {
-  APPROVED: { rotulo: 'Aprovado', estilo: 'bg-success/15 text-emerald-200' },
-  PENDING: { rotulo: 'Pendente', estilo: 'bg-amber/15 text-amber' },
-  REJECTED: { rotulo: 'Rejeitado', estilo: 'bg-danger/15 text-danger-200' },
+const STATUS: Record<Usuario['status'], { rotulo: string; tom: TomDeSelo }> = {
+  APPROVED: { rotulo: 'Aprovado', tom: 'sucesso' },
+  PENDING: { rotulo: 'Pendente', tom: 'alerta' },
+  REJECTED: { rotulo: 'Rejeitado', tom: 'perigo' },
 };
 
+const mensagemDaApi = (falha: unknown, padrao: string) =>
+  (isAxiosError(falha) && (falha.response?.data as { error?: string } | undefined)?.error) || padrao;
+
 export default function UsersPage() {
-  const { users, isLoading, error, fetchUsers, createUser, updateUser, deleteUser, changeStatus } = useUserStore();
-
+  const queryClient = useQueryClient();
+  const [aba, setAba] = useState<'todos' | 'pendentes'>('todos');
+  const [busca, setBusca] = useState('');
   // `null` = janela fechada; 'novo' = cadastro; usuário = edição.
-  const [formularioDe, setFormularioDe] = useState<User | 'novo' | null>(null);
-  const [excluindo, setExcluindo] = useState<User | null>(null);
+  const [formularioDe, setFormularioDe] = useState<Usuario | 'novo' | null>(null);
+  const [excluindo, setExcluindo] = useState<Usuario | null>(null);
 
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+  const { data: usuarios, isLoading, isError } = useQuery<Usuario[]>({
+    queryKey: ['users'],
+    queryFn: async () => (await api.get('/users')).data,
+  });
 
-  async function salvar(dados: Formulario) {
-    try {
-      if (formularioDe === 'novo') {
-        await createUser(dados);
-      } else if (formularioDe) {
-        // Senha em branco na edição mantém a atual.
-        const { password, ...semSenha } = dados;
-        await updateUser(formularioDe.id, password ? dados : semSenha);
-      }
+  const recarregar = () => queryClient.invalidateQueries({ queryKey: ['users'] });
+
+  const salvar = useMutation({
+    mutationFn: async (dados: Formulario) => {
+      if (formularioDe === 'novo') return api.post('/users', dados);
+      // Senha em branco na edição mantém a atual.
+      const { password, ...semSenha } = dados;
+      return api.put(`/users/${(formularioDe as Usuario).id}`, password ? dados : semSenha);
+    },
+    onSuccess: () => {
+      recarregar();
       setFormularioDe(null);
-    } catch {
-      // O erro fica no store e aparece dentro da janela.
-    }
-  }
+    },
+  });
 
-  async function excluir() {
-    if (!excluindo) return;
-    try {
-      await deleteUser(excluindo.id);
+  const excluir = useMutation({
+    mutationFn: async (id: string) => api.delete(`/users/${id}`),
+    onSuccess: () => {
+      recarregar();
       setExcluindo(null);
-    } catch {
-      // O erro fica no store e aparece dentro da janela.
-    }
-  }
+    },
+  });
 
-  // Aprovar/rejeitar não abre janela: se falhar, o erro do store aparece no topo da página.
-  const mudarStatus = (id: string, status: 'APPROVED' | 'REJECTED') => changeStatus(id, status).catch(() => {});
+  // Aprovar/rejeitar não abre janela: se falhar, o erro aparece no topo da página.
+  const mudarStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: 'APPROVED' | 'REJECTED' }) =>
+      api.patch(`/users/${id}/status`, { status }),
+    onSuccess: recarregar,
+  });
 
-  const janelaAberta = formularioDe !== null || excluindo !== null;
+  const pendentes = (usuarios ?? []).filter((usuario) => usuario.status === 'PENDING').length;
+
+  const listados = useMemo(() => {
+    const termo = normalizarBusca(busca.trim());
+    return (usuarios ?? []).filter(
+      (usuario) =>
+        (aba === 'todos' || usuario.status === 'PENDING') &&
+        (!termo || normalizarBusca(`${usuario.name} ${usuario.email}`).includes(termo)),
+    );
+  }, [usuarios, aba, busca]);
 
   return (
-    <div className="animate-rise">
-      <CabecalhoDePagina
-        titulo="Usuários"
-        descricao="Controle de acessos, permissões e aprovação de novos registros."
-      >
-        <Botao variante="primario" icone={Plus} onClick={() => setFormularioDe('novo')}>
+    <div className="animate-rise space-y-5">
+      <CabecalhoDePagina titulo="Usuários" descricao="Acessos ao EHS Hub, permissões e aprovação de novos cadastros.">
+        <Botao
+          variante="primario"
+          icone={Plus}
+          onClick={() => {
+            salvar.reset();
+            setFormularioDe('novo');
+          }}
+        >
           Novo usuário
         </Botao>
       </CabecalhoDePagina>
 
-      {error && !janelaAberta && (
-        <Aviso tipo="erro" className="mt-5">
-          {error}
-        </Aviso>
+      {mudarStatus.isError && (
+        <Aviso tipo="erro">{mensagemDaApi(mudarStatus.error, 'Não foi possível mudar o status do usuário.')}</Aviso>
       )}
 
-      <div className="card mt-7 overflow-hidden">
-        {isLoading && users.length === 0 ? (
-          <div className="flex justify-center py-24 text-muted" role="status" aria-label="Carregando usuários">
-            <Spinner className="h-8 w-8" />
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-hairline px-3">
+          <div className="flex gap-1" role="tablist" aria-label="Usuários">
+            <Aba ativa={aba === 'todos'} onClick={() => setAba('todos')} contagem={usuarios?.length ?? 0}>
+              Todos
+            </Aba>
+            <Aba ativa={aba === 'pendentes'} onClick={() => setAba('pendentes')} contagem={pendentes} alerta>
+              Aguardando aprovação
+            </Aba>
           </div>
-        ) : users.length === 0 ? (
-          <EstadoVazio icone={Users} titulo="Nenhum usuário encontrado" />
+          <CampoDeBusca valor={busca} aoMudar={setBusca} placeholder="Buscar nome ou e-mail…" className="mb-2.5 w-full sm:mb-0 sm:ml-auto sm:w-64" />
+        </div>
+
+        {isLoading ? (
+          <CarregandoArea rotulo="Carregando usuários" />
+        ) : isError ? (
+          <div className="p-4">
+            <Aviso tipo="erro">Não foi possível carregar os usuários. Recarregue a página para tentar de novo.</Aviso>
+          </div>
+        ) : listados.length === 0 ? (
+          busca ? (
+            <EstadoVazio icone={SearchX} titulo="Nenhum usuário encontrado" descricao="Ninguém corresponde à busca." />
+          ) : (
+            <EstadoVazio
+              icone={Users}
+              titulo={aba === 'pendentes' ? 'Nenhum cadastro aguardando' : 'Nenhum usuário'}
+              descricao={aba === 'pendentes' ? 'Os pedidos de acesso feitos na tela de login aparecem aqui.' : undefined}
+            />
+          )
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-hairline text-[12.5px] text-muted">
+            <table className="tabela">
+              <thead>
                 <tr>
-                  <th className="px-5 py-3 font-semibold">Usuário</th>
-                  <th className="px-4 py-3 font-semibold">Permissão</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-5 py-3">
+                  <th>Usuário</th>
+                  <th>Permissão</th>
+                  <th>Status</th>
+                  <th>Cadastro</th>
+                  <th>
                     <span className="sr-only">Ações</span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-hairline">
-                {users.map((user) => (
-                  <tr key={user.id} className="transition-colors hover:bg-raised/50">
-                    <td className="px-5 py-3.5">
+              <tbody>
+                {listados.map((usuario) => (
+                  <tr key={usuario.id}>
+                    <td>
                       <span className="flex items-center gap-3">
                         <span
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-tech/15 text-[13px] font-bold text-tech-100 ring-1 ring-tech/25"
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-tech/15 text-[11px] font-bold text-tech-100 ring-1 ring-tech/25"
                           aria-hidden="true"
                         >
-                          {iniciais(user.name)}
+                          {iniciais(usuario.name)}
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate font-semibold text-graphite">{user.name}</span>
-                          <span className="block truncate text-xs text-muted">{user.email}</span>
+                          <span className="block truncate font-semibold text-graphite">{usuario.name}</span>
+                          <span className="block truncate text-xs text-muted">{usuario.email}</span>
                         </span>
                       </span>
                     </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`flex items-center gap-2 ${user.role === 'ADMIN' ? 'text-tech-100' : 'text-graphite/90'}`}>
-                        <Shield
-                          className={`h-4 w-4 shrink-0 ${user.role === 'ADMIN' ? 'text-tech' : 'text-muted'}`}
-                          aria-hidden="true"
-                        />
-                        {PAPEIS[user.role] ?? user.role}
-                      </span>
+                    <td className={usuario.role === 'ADMIN' ? 'font-semibold text-tech-100' : 'text-graphite/90'}>
+                      {PAPEIS[usuario.role] ?? usuario.role}
                     </td>
-                    <td className="px-4 py-3.5">
-                      <span className="flex items-center gap-2">
-                        <span className={`pill ${STATUS[user.status]?.estilo ?? ''}`}>
-                          {STATUS[user.status]?.rotulo ?? user.status}
-                        </span>
-                        {user.status === 'PENDING' && (
+                    <td>
+                      <span className="flex items-center gap-1.5">
+                        <Selo tom={STATUS[usuario.status]?.tom} ponto>
+                          {STATUS[usuario.status]?.rotulo ?? usuario.status}
+                        </Selo>
+                        {usuario.status === 'PENDING' && (
                           <>
                             <BotaoDeIcone
                               icone={CheckCircle}
                               rotulo="Aprovar usuário"
                               variante="sucesso"
-                              onClick={() => mudarStatus(user.id, 'APPROVED')}
+                              onClick={() => mudarStatus.mutate({ id: usuario.id, status: 'APPROVED' })}
+                              disabled={mudarStatus.isPending}
                             />
                             <BotaoDeIcone
                               icone={XCircle}
                               rotulo="Rejeitar usuário"
                               variante="perigo"
-                              onClick={() => mudarStatus(user.id, 'REJECTED')}
+                              onClick={() => mudarStatus.mutate({ id: usuario.id, status: 'REJECTED' })}
+                              disabled={mudarStatus.isPending}
                             />
                           </>
                         )}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <BotaoDeIcone icone={Pencil} rotulo="Editar usuário" onClick={() => setFormularioDe(user)} />
+                    <td className="whitespace-nowrap text-xs tabular-nums text-muted">
+                      {usuario.createdAt ? formatarDataHora(usuario.createdAt) : '—'}
+                    </td>
+                    <td className="w-px">
+                      <div className="flex items-center justify-end gap-1">
+                        <BotaoDeIcone
+                          icone={Pencil}
+                          rotulo="Editar usuário"
+                          onClick={() => {
+                            salvar.reset();
+                            setFormularioDe(usuario);
+                          }}
+                        />
                         <BotaoDeIcone
                           icone={Trash2}
                           rotulo="Excluir usuário"
                           variante="perigo"
-                          onClick={() => setExcluindo(user)}
+                          onClick={() => {
+                            excluir.reset();
+                            setExcluindo(usuario);
+                          }}
                         />
                       </div>
                     </td>
@@ -180,9 +242,9 @@ export default function UsersPage() {
         <ModalDeUsuario
           usuario={formularioDe === 'novo' ? null : formularioDe}
           aoFechar={() => setFormularioDe(null)}
-          aoSalvar={salvar}
-          salvando={isLoading}
-          erro={error}
+          aoSalvar={(dados) => salvar.mutate(dados)}
+          salvando={salvar.isPending}
+          erro={salvar.isError ? mensagemDaApi(salvar.error, 'Não foi possível salvar o usuário.') : null}
         />
       )}
 
@@ -191,10 +253,10 @@ export default function UsersPage() {
           titulo="Excluir usuário?"
           rotuloConfirmar="Excluir"
           variante="perigo"
-          aoConfirmar={excluir}
+          aoConfirmar={() => excluir.mutate(excluindo.id)}
           aoFechar={() => setExcluindo(null)}
-          carregando={isLoading}
-          erro={error}
+          carregando={excluir.isPending}
+          erro={excluir.isError ? mensagemDaApi(excluir.error, 'Não foi possível excluir o usuário.') : null}
         >
           <p>
             <strong className="text-white">{excluindo.name}</strong> perde o acesso ao sistema permanentemente. Esta
@@ -206,9 +268,41 @@ export default function UsersPage() {
   );
 }
 
+interface AbaProps {
+  ativa: boolean;
+  contagem: number;
+  alerta?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+
+function Aba({ ativa, contagem, alerta = false, onClick, children }: AbaProps) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={ativa}
+      onClick={onClick}
+      className={`relative flex h-11 shrink-0 items-center gap-2 px-3 text-[13px] font-semibold transition-colors ${
+        ativa ? 'text-white' : 'text-muted hover:text-graphite'
+      }`}
+    >
+      {children}
+      <span
+        className={`rounded-md px-1.5 text-[11px] tabular-nums leading-5 ${
+          alerta && contagem > 0 ? 'bg-amber/15 text-amber' : 'bg-white/[0.06] text-muted'
+        }`}
+      >
+        {contagem}
+      </span>
+      {ativa && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-tech" aria-hidden="true" />}
+    </button>
+  );
+}
+
 interface ModalDeUsuarioProps {
   /** Usuário em edição; `null` para um cadastro novo. */
-  usuario: User | null;
+  usuario: Usuario | null;
   aoFechar: () => void;
   aoSalvar: (dados: Formulario) => void;
   salvando: boolean;
@@ -224,12 +318,9 @@ function ModalDeUsuario({ usuario, aoFechar, aoSalvar, salvando, erro }: ModalDe
     role: usuario?.role ?? 'USER',
     status: usuario?.status ?? 'APPROVED',
   });
-  // O store guarda o último erro de qualquer operação: só vale o que acontecer depois de enviar.
-  const [enviado, setEnviado] = useState(false);
 
   function enviar(evento: FormEvent) {
     evento.preventDefault();
-    setEnviado(true);
     aoSalvar(dados);
   }
 
@@ -279,7 +370,7 @@ function ModalDeUsuario({ usuario, aoFechar, aoSalvar, salvando, erro }: ModalDe
           <Select
             rotulo="Permissão"
             value={dados.role}
-            onChange={(e) => setDados({ ...dados, role: e.target.value as User['role'] })}
+            onChange={(e) => setDados({ ...dados, role: e.target.value as Usuario['role'] })}
           >
             <option value="USER">EHS (normal)</option>
             <option value="REVIEWER">Revisor</option>
@@ -288,7 +379,7 @@ function ModalDeUsuario({ usuario, aoFechar, aoSalvar, salvando, erro }: ModalDe
           <Select
             rotulo="Status"
             value={dados.status}
-            onChange={(e) => setDados({ ...dados, status: e.target.value as User['status'] })}
+            onChange={(e) => setDados({ ...dados, status: e.target.value as Usuario['status'] })}
           >
             <option value="APPROVED">Aprovado</option>
             <option value="PENDING">Pendente</option>
@@ -296,7 +387,7 @@ function ModalDeUsuario({ usuario, aoFechar, aoSalvar, salvando, erro }: ModalDe
           </Select>
         </div>
 
-        {enviado && erro && <Aviso tipo="erro">{erro}</Aviso>}
+        {erro && <Aviso tipo="erro">{erro}</Aviso>}
       </form>
     </Modal>
   );

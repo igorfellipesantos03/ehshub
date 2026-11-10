@@ -2,9 +2,9 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
 import { ENV } from '@/config/env';
 import { CHAVE_STATE_SSO } from '@/lib/sso';
+import { CarregandoPagina } from '@/components/ui/Feedback';
 
 /**
  * Início do login pelo CentralHub — é este endereço (/sso) que vai cadastrado
@@ -33,10 +33,5 @@ export default function IniciarSso() {
     window.location.replace(destino.toString());
   }, [router]);
 
-  return (
-    <div className="flex min-h-screen items-center justify-center gap-3 bg-[#020617] text-slate-300">
-      <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-      <span className="text-sm font-medium">Entrando pelo CentralHub…</span>
-    </div>
-  );
+  return <CarregandoPagina rotulo="Entrando pelo CentralHub" />;
 }

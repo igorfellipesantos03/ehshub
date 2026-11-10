@@ -120,6 +120,7 @@ export const receberFatura = async (req: Request, res: Response) => {
       status: 'PROCESSANDO',
       progress: 5,
       errorReason: null,
+      processamentoIniciadoEm: null, // Reprocessamento volta para o fim da fila
       valorBrutoProtheus: dados.valorBruto,
       emissaoProtheus: emissaoIso(dados.emissao),
       usuarioProtheus: dados.usuario || null,

@@ -3,17 +3,21 @@ import type { LucideIcon } from 'lucide-react';
 import { Spinner } from './Feedback';
 
 const ESTILOS_DE_BOTAO = {
-  primario:
-    'bg-gradient-to-r from-ink-700 via-tech-600 to-tech text-white shadow-[0_10px_24px_-12px_rgba(0,168,204,0.8)] hover:brightness-110',
+  primario: 'bg-tech font-bold text-night hover:bg-[#19bfe3]',
   sucesso: 'bg-success text-white hover:brightness-110',
   perigo: 'bg-danger text-white hover:brightness-110',
-  neutro: 'border border-hairline text-graphite hover:bg-raised',
+  neutro: 'border border-hairline bg-surface text-graphite hover:bg-raised',
   // Ações de apoio com cor: o tom avisa o efeito sem competir com o botão primário.
   tech: 'border border-tech/30 bg-tech/10 text-tech-100 hover:bg-tech/20',
   alerta: 'border border-danger/35 bg-danger/10 text-danger-200 hover:bg-danger/20',
+  fantasma: 'text-muted hover:bg-raised hover:text-white',
 };
 
 export type VarianteDeBotao = keyof typeof ESTILOS_DE_BOTAO;
+
+/** Classes do botão, para links (`<Link>`, `<a>`) que precisam parecer botão. */
+export const classesDeBotao = (variante: VarianteDeBotao = 'neutro', className = '') =>
+  `inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-control px-3.5 text-[13px] font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${ESTILOS_DE_BOTAO[variante]} ${className}`;
 
 interface BotaoProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variante?: VarianteDeBotao;
@@ -31,12 +35,7 @@ export function Botao({
   ...rest
 }: BotaoProps) {
   return (
-    <button
-      type="button"
-      {...rest}
-      disabled={carregando || disabled}
-      className={`inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${ESTILOS_DE_BOTAO[variante]} ${className}`}
-    >
+    <button type="button" {...rest} disabled={carregando || disabled} className={classesDeBotao(variante, className)}>
       {carregando ? <Spinner className="h-4 w-4" /> : Icone && <Icone className="h-4 w-4" aria-hidden="true" />}
       {children}
     </button>
@@ -44,10 +43,10 @@ export function Botao({
 }
 
 const ESTILOS_DE_ICONE = {
-  neutro: 'border-hairline text-muted hover:bg-raised hover:text-white',
+  neutro: 'border-transparent text-muted hover:border-hairline hover:bg-raised hover:text-white',
   tech: 'border-tech/30 bg-tech/10 text-tech-100 hover:bg-tech/20',
   sucesso: 'border-success/35 bg-success/10 text-emerald-200 hover:bg-success/20',
-  perigo: 'border-hairline text-muted hover:border-danger/40 hover:bg-danger/15 hover:text-danger-200',
+  perigo: 'border-transparent text-muted hover:border-danger/40 hover:bg-danger/15 hover:text-danger-200',
 };
 
 interface BotaoDeIconeProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -74,7 +73,7 @@ export function BotaoDeIcone({
       disabled={carregando || disabled}
       aria-label={rotulo}
       title={rotulo}
-      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${ESTILOS_DE_ICONE[variante]} ${className}`}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control border transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${ESTILOS_DE_ICONE[variante]} ${className}`}
     >
       {carregando ? <Spinner className="h-4 w-4" /> : <Icone className="h-4 w-4" aria-hidden="true" />}
     </button>

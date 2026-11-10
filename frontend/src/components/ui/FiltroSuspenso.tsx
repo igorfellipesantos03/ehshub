@@ -46,14 +46,14 @@ export function FiltroSuspenso({ icone: Icone, rotuloTodos, opcoes, valor, aoMud
         onClick={() => setAberto((atual) => !atual)}
         aria-haspopup="listbox"
         aria-expanded={aberto}
-        className={`flex h-10 max-w-[280px] items-center gap-2.5 rounded-xl border px-3.5 text-sm font-medium transition-colors ${
-          valor ? 'border-tech/40 bg-tech/10 text-tech-100' : 'border-hairline text-graphite hover:bg-raised'
+        className={`flex h-9 max-w-[260px] items-center gap-2 rounded-control border px-3 text-[13px] font-medium transition-colors ${
+          valor ? 'border-tech/40 bg-tech/10 text-tech-100' : 'border-hairline bg-surface text-graphite hover:bg-raised'
         }`}
       >
         <Icone className={`h-4 w-4 shrink-0 ${valor ? 'text-tech' : 'text-muted'}`} aria-hidden="true" />
         <span className="truncate">{valor ?? rotuloTodos}</span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-muted transition-transform ${aberto ? 'rotate-180' : ''}`}
+          className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${aberto ? 'rotate-180' : ''}`}
           aria-hidden="true"
         />
       </button>
@@ -61,7 +61,7 @@ export function FiltroSuspenso({ icone: Icone, rotuloTodos, opcoes, valor, aoMud
       {aberto && (
         <ul
           role="listbox"
-          className="animate-rise absolute left-0 top-full z-50 mt-2 max-h-72 w-72 overflow-y-auto rounded-card bg-raised p-1.5 shadow-lift"
+          className="animate-rise absolute left-0 top-full z-50 mt-1.5 max-h-72 w-72 overflow-y-auto rounded-card bg-raised p-1 shadow-lift"
         >
           {[null, ...opcoes].map((opcao) => {
             const selecionada = opcao === valor;
@@ -70,7 +70,7 @@ export function FiltroSuspenso({ icone: Icone, rotuloTodos, opcoes, valor, aoMud
                 <button
                   type="button"
                   onClick={() => escolher(opcao)}
-                  className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  className={`flex w-full items-center justify-between gap-2 rounded-control px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${
                     selecionada ? 'bg-tech/15 text-tech-100' : 'text-graphite hover:bg-white/[0.06]'
                   }`}
                 >

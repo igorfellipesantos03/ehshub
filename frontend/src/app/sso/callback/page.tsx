@@ -3,9 +3,12 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import api from '@/lib/api';
+import { iniciarSessao } from '@/lib/sessao';
 import { CHAVE_STATE_SSO } from '@/lib/sso';
+import { classesDeBotao } from '@/components/ui/Botao';
+import { CarregandoPagina, Spinner } from '@/components/ui/Feedback';
 
 function Callback() {
   const router = useRouter();
@@ -33,8 +36,7 @@ function Callback() {
 
     trocarCodigo()
       .then((data) => {
-        localStorage.setItem('@EHS:token', data.token);
-        localStorage.setItem('@EHS:user', JSON.stringify(data.user));
+        iniciarSessao(data.token, data.user);
         router.replace('/hub');
       })
       .catch((err) => {
@@ -42,36 +44,32 @@ function Callback() {
       });
   }, [params, router]);
 
-  if (!erro) {
-    return (
-      <div className="flex items-center gap-3 text-slate-300">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-        <span className="text-sm font-medium">Entrando pelo CentralHub…</span>
-      </div>
-    );
-  }
+  if (!erro) return <CarregandoPagina rotulo="Entrando pelo CentralHub" />;
 
   return (
-    <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-[#0B1120] p-8 text-center">
-      <AlertCircle className="mx-auto h-10 w-10 text-red-400" />
-      <h1 className="mt-3 text-lg font-bold text-white">Login não concluído</h1>
-      <p className="mt-2 text-sm text-slate-400">{erro}</p>
-      <Link
-        href="/login"
-        className="mt-6 inline-block rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-      >
-        Entrar com e-mail e senha
-      </Link>
+    <div className="flex min-h-dvh items-center justify-center px-6">
+      <div className="card w-full max-w-md p-7 text-center">
+        <AlertCircle className="mx-auto h-9 w-9 text-danger-200" aria-hidden="true" />
+        <h1 className="mt-3 text-lg font-bold text-white">Login não concluído</h1>
+        <p className="mt-1.5 text-sm text-muted">{erro}</p>
+        <Link href="/login" className={classesDeBotao('primario', 'mt-6')}>
+          Entrar com e-mail e senha
+        </Link>
+      </div>
     </div>
   );
 }
 
 export default function SsoCallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#020617] px-6">
-      <Suspense fallback={<Loader2 className="h-6 w-6 animate-spin text-blue-500" />}>
-        <Callback />
-      </Suspense>
-    </div>
+    <Suspense
+      fallback={
+        <div className="flex min-h-dvh items-center justify-center text-muted">
+          <Spinner />
+        </div>
+      }
+    >
+      <Callback />
+    </Suspense>
   );
 }

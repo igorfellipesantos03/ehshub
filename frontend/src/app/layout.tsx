@@ -11,7 +11,7 @@ import Providers from "./providers";
 
 export const metadata: Metadata = {
   title: "EHS HUB",
-  description: "Sistema de gestão de Environment, Health and Safety",
+  description: "Central de faturas de energia da Conasa",
   icons: {
     icon: "/logo_da_jamile.png",
   },
@@ -23,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" translate="no" className="dark" suppressHydrationWarning>
+    <html lang="pt-BR" translate="no" suppressHydrationWarning>
       <body className="min-h-screen notranslate">
         <Providers>{children}</Providers>
       </body>

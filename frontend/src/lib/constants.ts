@@ -35,7 +35,3 @@ export const BRANCHES: Record<string, string[]> = {
     'FILIAL - NOVO PROGRESSO',
   ],
 };
-
-export const AREAS = ['HS', 'E', 'EHS'];
-
-export const REPRESENTATIVES = ['Hellen', 'Jamile', 'Laís', 'Deborah'];

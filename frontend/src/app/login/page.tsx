@@ -7,9 +7,9 @@ import { useMutation } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, LayoutGrid } from 'lucide-react';
 import api from '@/lib/api';
-import { perguntarVinculoProtheus } from '@/lib/vinculoProtheus';
 import { Aviso, Spinner } from '@/components/ui/Feedback';
 import { MiniIndicadores, PainelDeIndicadores } from '@/features/login/PainelDeIndicadores';
+import { ModalVincularProtheus } from '@/features/login/ModalVincularProtheus';
 
 const CHAVE_DO_EMAIL = 'ehs:email-lembrado';
 
@@ -41,10 +41,11 @@ export default function Login() {
   const [lembrar, setLembrar] = useState(true);
   const [erro, setErro] = useState('');
   const [sucesso, setSucesso] = useState('');
+  const [oferecerVinculo, setOferecerVinculo] = useState(false);
 
   const entrar = useMutation({
     mutationFn: async () => (await api.post('/auth/login', { email, password: senha })).data,
-    onSuccess: async (data) => {
+    onSuccess: (data) => {
       localStorage.setItem('@EHS:token', data.token);
       localStorage.setItem('@EHS:user', JSON.stringify(data.user));
       try {
@@ -56,11 +57,8 @@ export default function Login() {
 
       // Quem ainda não vinculou o Protheus é convidado a vincular: é o que
       // permite entrar depois direto pelo CentralHub.
-      if (!data.user.protheusLinked) {
-        await perguntarVinculoProtheus();
-      }
-
-      router.push('/hub');
+      if (data.user.protheusLinked) router.push('/hub');
+      else setOferecerVinculo(true);
     },
     onError: (falha) => {
       setErro(mensagemDaApi(falha, 'Credenciais inválidas. Verifique seu e-mail e senha.'));
@@ -106,7 +104,7 @@ export default function Login() {
         <Marca />
         <MiniIndicadores />
 
-        <div key={cadastrando ? 'cadastro' : 'login'} className="animate-rise my-auto w-full max-w-[400px] py-7 lg:py-12">
+        <div key={cadastrando ? 'cadastro' : 'login'} className="animate-rise mx-auto my-auto w-full max-w-[400px] py-7 lg:py-12">
           {cadastrando ? (
             <>
               <button
@@ -222,6 +220,8 @@ export default function Login() {
 
         <p className="text-[12.5px] text-ink-400">Acesso restrito a colaboradores da Conasa.</p>
       </main>
+
+      {oferecerVinculo && <ModalVincularProtheus perguntarAntes aoFechar={() => router.push('/hub')} />}
     </div>
   );
 }

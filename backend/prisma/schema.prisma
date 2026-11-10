@@ -103,6 +103,8 @@ model Fatura {
   status       FaturaStatus @default(MANUAL) // Status do processamento
   progress     Int          @default(0)     // Progresso do pipeline n8n (0 a 100)
   errorReason  String?                      // Motivo do erro, se houver (ex: "Too many requests")
+  // Quando o n8n tirou a fatura da fila e começou a processar. Nulo = ainda na fila.
+  processamentoIniciadoEm DateTime?
   // Faturas vindas do Protheus não têm link de coleta.
   linkId       String?
   link         LinkColeta?  @relation(fields: [linkId], references: [id])

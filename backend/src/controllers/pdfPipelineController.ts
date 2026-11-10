@@ -133,11 +133,13 @@ export const callbackN8n = async (req: Request, res: Response) => {
     }
 
     // ── Atualização de Progresso (chamado pelo n8n durante o pipeline) ──
+    // O primeiro aviso marca a saída da fila: é dele que conta o tempo de "travada".
     if (status === 'PROCESSANDO' && progress !== undefined) {
       const faturaAtualizada = await db.fatura.update({
         where: { id: faturaId },
         data: {
           progress: Math.min(Math.max(parseInt(String(progress), 10) || 0, 0), 100),
+          ...(faturaExistente.processamentoIniciadoEm ? {} : { processamentoIniciadoEm: new Date() }),
         },
       });
 
